@@ -22,6 +22,10 @@ function broadcast(data, ws) {
 	})
 }
 
+function log(message) {
+	console.log(new Date().toLocaleTimeString(), message)
+}
+
 wss.on("connection", (ws, request) => {
 	for (let i = 0; i < past_messages.length; i++) {
 		let pastMessage = past_messages[i]
@@ -50,6 +54,8 @@ wss.on("connection", (ws, request) => {
 
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username = data.content
+
+					log(`${data.content} (${request.headers["x-forwarded-for"] || request.socket.remoteAddress}) has joined the chatroom.`)
 					return broadcast({ type: "SERVER_MESSAGE", content: `${data.content} has joined the chatroom.`, timestamp: Date.now() })
 					break
 				case "READY":
@@ -58,6 +64,7 @@ wss.on("connection", (ws, request) => {
 					setTimeout(() => (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"), 500)
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "COOLDOWN"
 
+					log(`${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} (${request.headers["x-forwarded-for"] || request.socket.remoteAddress}) ${data.content}`)
 					return broadcast({
 						type: "USER_MESSAGE",
 						author: users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username,
@@ -76,6 +83,7 @@ wss.on("connection", (ws, request) => {
 
 	ws.on("close", (code, reason) => {
 		if (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`] && users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username) {
+			log(`${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} (${request.headers["x-forwarded-for"] || request.socket.remoteAddress}) has left the chatroom.`)
 			broadcast({
 				type: "SERVER_MESSAGE",
 				content: `${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} has left the chatroom.`,

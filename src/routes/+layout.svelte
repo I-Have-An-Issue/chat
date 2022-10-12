@@ -1,7 +1,7 @@
 <script>
-  import "../app.css";
+	import "../app.css"
 </script>
 
-<div class="container m-4 w-screen mx-auto">
+<div class="w-screen h-screen mx-auto p-4">
 	<slot />
 </div>

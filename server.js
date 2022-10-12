@@ -46,19 +46,20 @@ wss.on("connection", (ws, request) => {
 					if (!data.content || data.content.length <= 0) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "You must enter a username." }))
 					if (data.content.length > 16) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Usernames can only be 1-16 characters long." }))
 					if (new RegExp(/[^A-Za-z0-9_]/g).test(data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Usernames can only be letters, numbers, and underscores." }))
-					if (Object.values(users).find((_) => _.username == data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Somebody already has that username." }))
+					if (Object.values(users).find((_) => _?.username == data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Somebody already has that username." }))
 
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username = data.content
 
 					console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${data.content} has joined the chatroom.`)
+					broadcast({ type: "USER_ADD", name: data.content, rank: 1 })
 					return broadcast({ type: "SERVER_MESSAGE", content: `${data.content} has joined the chatroom.`, timestamp: Date.now() })
 					break
 				case "READY":
 					if (data.content.length > 100 || data.content.length <= 0) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Messages can only be 1-100 characters long." }))
 
-					setTimeout(() => (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"), 500)
-					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "COOLDOWN"
+					//setTimeout(() => (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"), 500)
+					//users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "COOLDOWN"
 
 					console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} ${data.content}`)
 					return broadcast({
@@ -80,13 +81,15 @@ wss.on("connection", (ws, request) => {
 	ws.on("close", (code, reason) => {
 		if (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`] && users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username) {
 			console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} has left the chatroom.`)
+
+			broadcast({ type: "USER_REMOVE", name: users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username })
 			broadcast({
 				type: "SERVER_MESSAGE",
 				content: `${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} has left the chatroom.`,
 				timestamp: Date.now(),
 			})
 
-			delete users[`${request.socket.remoteAddress}:${request.socket.remotePort}`]
+			users[`${request.socket.remoteAddress}:${request.socket.remotePort}`] = undefined
 		}
 	})
 })

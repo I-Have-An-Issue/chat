@@ -42,7 +42,7 @@
 	}
 
 	if (browser) {
-		socket = new WebSocket(`ws://${$page.url.host}/`)
+		socket = new WebSocket(`ws${$page.url.protocol == "https" && "s"}://${$page.url.host}/`)
 
 		socket.addEventListener("open", () => {
 			connected = true

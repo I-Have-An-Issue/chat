@@ -1,12 +1,12 @@
-import { handler } from './build/handler.js';
-import express from 'express';
-import WebSocket, { WebSocketServer } from 'ws';
-import { createServer } from 'http';
+import { handler } from "./build/handler.js"
+import express from "express"
+import WebSocket, { WebSocketServer } from "ws"
+import { createServer } from "http"
 
-const app = express();
+const app = express()
 const server = createServer(app)
 
-app.use(handler);
+app.use(handler)
 
 const wss = new WebSocketServer({ server })
 
@@ -17,8 +17,8 @@ wss.on("connection", (ws) => {
 			if (client !== ws && client.readyState === WebSocket.OPEN) {
 				client.send(message, { binary: isBinary })
 			}
-		});
+		})
 	})
 })
 
-server.listen(5173)
+server.listen(process.env.PORT)

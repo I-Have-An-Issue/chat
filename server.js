@@ -46,7 +46,7 @@ wss.on("connection", (ws, request) => {
 					if (!data.content || data.content.length <= 0) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "You must enter a username." }))
 					if (data.content.length > 16) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Usernames can only be 1-16 characters long." }))
 					if (new RegExp(/[^A-Za-z0-9_]/g).test(data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Usernames can only be letters, numbers, and underscores." }))
-					if (Object.values(users).find((_) => _.username == data.content.toLowerCase())) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Somebody already has that username." }))
+					if (Object.values(users).find((_) => _.username == data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Somebody already has that username." }))
 
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"
 					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username = data.content

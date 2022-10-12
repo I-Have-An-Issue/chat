@@ -84,6 +84,6 @@
 	</div>
 	<form on:submit|preventDefault={sendMessage} class="flex pt-3">
 		<input class="h-10 w-full px-2 rounded border-2 border-zinc-700 bg-zinc-800" type="text" id="message" autocomplete="off" bind:value on:input={onInput} />
-		<button class="px-2 rounded ml-2 border-2 border-blue-500 {valid || connected ? 'text-blue-500 hover:bg-blue-500 hover:bg-opacity-30' : 'text-blue-100 border-blue-100 pointer-events-none'}">Send</button>
+		<button class="px-6 text-lg font-bold rounded ml-2 border-2 border-blue-500 {valid || connected ? 'text-blue-500 hover:bg-blue-500 hover:bg-opacity-30' : 'text-blue-100 border-blue-100 pointer-events-none'}">Send</button>
 	</form>
 </div>

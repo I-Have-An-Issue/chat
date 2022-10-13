@@ -10,11 +10,19 @@ app.use(handler)
 
 const wss = new WebSocketServer({ server })
 
-let users = {}
-let past_messages = []
+let pastMessages = []
+
+function existingUsername(username) {
+	return new Promise((resolve, reject) => {
+		wss.clients.forEach((client) => {
+			if (client.username == username) resolve(client)
+		})
+		resolve(false)
+	})
+}
 
 function broadcast(data, ws) {
-	past_messages.push(JSON.stringify(data))
+	if (["SERVER_MESSAGE", "USER_MESSAGE", "USER_ADD", "USER_REMOVE"].includes(data.type)) pastMessages.push(data)
 	wss.clients.forEach((client) => {
 		if (client !== ws && client.readyState === WebSocket.OPEN) {
 			client.send(JSON.stringify(data))
@@ -23,73 +31,132 @@ function broadcast(data, ws) {
 }
 
 wss.on("connection", (ws, request) => {
-	for (let i = 0; i < past_messages.length; i++) {
-		let pastMessage = past_messages[i]
-		ws.send(pastMessage)
+	for (let i = 0; i < pastMessages.length; i++) {
+		let pastMessage = pastMessages[i]
+		ws.send(JSON.stringify(pastMessage))
 	}
 
-	users[`${request.socket.remoteAddress}:${request.socket.remotePort}`] = {}
-	ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "The server has enabled guest login. Your next message will be your username." }))
-	users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "SET_USERNAME"
+	ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Guest login is enabled. Your next message will be your username.", color: 1 }))
+	ws.chatState = "SET_USERNAME"
 
 	ws.on("pong", () => (ws.isAlive = true))
 
-	ws.on("message", (message, isBinary) => {
+	ws.on("message", async (message, isBinary) => {
 		let data
 		try {
 			data = JSON.parse(message.toString())
 		} catch (_) {}
 
-		if (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`]) {
-			switch (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state) {
-				case "SET_USERNAME":
-					if (!data.content || data.content.length <= 0) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "You must enter a username." }))
-					if (data.content.length > 16) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Usernames can only be 1-16 characters long." }))
-					if (new RegExp(/[^A-Za-z0-9_]/g).test(data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Usernames can only be letters, numbers, and underscores." }))
-					if (Object.values(users).find((_) => _?.username == data.content)) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Somebody already has that username." }))
+		switch (ws.chatState) {
+			case "SET_USERNAME":
+				if (!data.content || data.content.length <= 0)
+					return ws.send(
+						JSON.stringify({
+							type: "SERVER_MESSAGE",
+							content: "You must enter a username.",
+							color: 2,
+						})
+					)
 
-					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"
-					users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username = data.content
+				if (data.content.length > 16)
+					return ws.send(
+						JSON.stringify({
+							type: "SERVER_MESSAGE",
+							content: "Usernames can only be 1-16 characters long.",
+							color: 2,
+						})
+					)
 
-					console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${data.content} has joined the chatroom.`)
-					broadcast({ type: "USER_ADD", name: data.content, rank: 1 })
-					return broadcast({ type: "SERVER_MESSAGE", content: `${data.content} has joined the chatroom.`, timestamp: Date.now() })
-					break
-				case "READY":
-					if (data.content.length > 100 || data.content.length <= 0) return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Messages can only be 1-100 characters long." }))
+				if (new RegExp(/[^A-Za-z0-9_]/g).test(data.content))
+					return ws.send(
+						JSON.stringify({
+							type: "SERVER_MESSAGE",
+							content: "Usernames can only be letters, numbers, and underscores.",
+							color: 2,
+						})
+					)
 
-					//setTimeout(() => (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "READY"), 500)
-					//users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].state = "COOLDOWN"
+				if (await existingUsername(data.content))
+					return ws.send(
+						JSON.stringify({
+							type: "SERVER_MESSAGE",
+							content: "Somebody already has that username.",
+							color: 2,
+						})
+					)
 
-					console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} ${data.content}`)
-					return broadcast({
-						type: "USER_MESSAGE",
-						author: users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username,
-						content: data.content,
-						timestamp: Date.now(),
+				ws.chatState = "READY"
+				ws.username = data.content
+
+				console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} has joined the chatroom.`)
+
+				broadcast({
+					type: "USER_ADD",
+					name: ws.username,
+					rank: 0,
+				})
+
+				broadcast({
+					type: "SERVER_MESSAGE",
+					content: `${ws.username} has joined the chatroom.`,
+					timestamp: Date.now(),
+					color: 1,
+				})
+				break
+			case "READY":
+				if (data.content.length > 100 || data.content.length <= 0)
+					return ws.send(
+						JSON.stringify({
+							type: "SERVER_MESSAGE",
+							content: "Messages can only be 1-100 characters long.",
+							color: 2,
+						})
+					)
+
+				setTimeout(() => (ws.chatState = "READY"), 500)
+				ws.chatState = "COOLDOWN"
+
+				console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} ${data.content}`)
+
+				broadcast({
+					type: "USER_MESSAGE",
+					author: ws.username,
+					content: data.content,
+					timestamp: Date.now(),
+					color: 0,
+				})
+				break
+			case "COOLDOWN":
+				break
+			default:
+				ws.send(
+					JSON.stringify({
+						type: "SERVER_MESSAGE",
+						content: "ERR_UNKNOWN_STATE",
 					})
-					break
-				case "COOLDOWN":
-					break
-				default:
-					return ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "ERR_UNKNOWN_STATE" }))
-					break
-			}
+				)
+				break
 		}
 	})
 
 	ws.on("close", (code, reason) => {
-		if (users[`${request.socket.remoteAddress}:${request.socket.remotePort}`] && users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username) {
-			console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} has left the chatroom.`)
+		if (ws.chatState == "READY" && ws.username) {
+			console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} has left the chatroom.`)
 
-			broadcast({ type: "USER_REMOVE", name: users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username })
 			broadcast({
-				type: "SERVER_MESSAGE",
-				content: `${users[`${request.socket.remoteAddress}:${request.socket.remotePort}`].username} has left the chatroom.`,
-				timestamp: Date.now(),
+				type: "USER_REMOVE",
+				name: ws.username,
 			})
 
-			users[`${request.socket.remoteAddress}:${request.socket.remotePort}`] = undefined
+			broadcast({
+				type: "SERVER_MESSAGE",
+				content: `${ws.username} has left the chatroom.`,
+				timestamp: Date.now(),
+				color: 1,
+			})
+
+			ws.chatState = undefined
+			ws.username = undefined
 		}
 	})
 })
@@ -97,7 +164,6 @@ wss.on("connection", (ws, request) => {
 const interval = setInterval(() => {
 	wss.clients.forEach((ws) => {
 		if (ws.isAlive === false) return ws.terminate()
-
 		ws.isAlive = false
 		ws.ping()
 	})

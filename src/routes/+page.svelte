@@ -3,8 +3,8 @@
 	import { browser } from "$app/environment"
 	import { page } from "$app/stores"
 
-	export let chats = []
-	let valid = true,
+	let chats = [],
+		valid = true,
 		connected = false,
 		value = "",
 		chatbox,
@@ -24,13 +24,13 @@
 		value = ""
 	}
 
-	function newServerMessage(content, type) {
-		return newMessage(Date.now(), null, content, type)
+	function newServerMessage(content, type, timestamp) {
+		return newMessage(timestamp, null, content, type)
 	}
 
 	function newMessage(ms, username, content, type) {
 		chats.push({ timestamp: ms, username, content, type: type || 0 })
-		chats = chats
+		chats = chats.slice(-100)
 		target.scrollIntoView()
 	}
 
@@ -41,6 +41,7 @@
 			connected = true
 			users = []
 		})
+
 		socket.addEventListener("error", (error) => console.log(error))
 
 		socket.addEventListener("close", () => {
@@ -53,7 +54,7 @@
 
 			switch (json.type) {
 				case "SERVER_MESSAGE":
-					newServerMessage(json.content, json.color)
+					newServerMessage(json.content, json.color, json.timestamp)
 					break
 				case "USER_MESSAGE":
 					newMessage(new Date(json.timestamp).getTime(), json.author, json.content)
@@ -65,6 +66,9 @@
 				case "USER_REMOVE":
 					users.pop(json.name)
 					users = users
+					break
+				case "PRIVATE_MESSAGE":
+					newMessage(new Date(json.timestamp).getTime(), json.author, json.content, 4)
 					break
 				default:
 					console.log(json)
@@ -82,7 +86,7 @@
 			{:else}
 				<Message message={{ timestamp: Date.now(), content: "Connecting to the chatroom..." }} type={1} />
 			{/each}
-			<span class="h-6" bind:this={target} />
+			<span class="h-6 flex-none" bind:this={target} />
 		</div>
 		<form on:submit|preventDefault={sendMessage} class="flex pt-3 mt-2">
 			<input class="h-10 w-full px-2 rounded border-2 border-zinc-700 bg-zinc-800" type="text" id="message" autocomplete="off" bind:value on:input={onInput} />
@@ -95,7 +99,7 @@
 			</button>
 		</form>
 	</div>
-	<div class="bg-zinc-800 p-2 w-full flex flex-col userlist">
+	<div class="bg-zinc-800 p-2 w-full flex flex-col userlist rounded-lg">
 		{#each users as username}
 			<p class="font-bold">{username}</p>
 		{/each}

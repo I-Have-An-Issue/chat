@@ -2,6 +2,7 @@ import { handler } from "./build/handler.js"
 import express from "express"
 import WebSocket, { WebSocketServer } from "ws"
 import { createServer } from "http"
+import { randomUUID } from "crypto"
 
 const app = express()
 const server = createServer(app)
@@ -22,22 +23,18 @@ function existingUsername(username) {
 }
 
 function broadcast(data, ws) {
-	if (["SERVER_MESSAGE", "USER_MESSAGE", "USER_ADD", "USER_REMOVE"].includes(data.type)) pastMessages.push(data)
+	if (["SERVER_MESSAGE", "USER_MESSAGE"].includes(data.type)) pastMessages.push(data)
 	wss.clients.forEach((client) => {
-		if (client !== ws && client.readyState === WebSocket.OPEN) {
+		if (client !== ws && client.readyState === WebSocket.OPEN && client.username) {
 			client.send(JSON.stringify(data))
 		}
 	})
 }
 
 wss.on("connection", (ws, request) => {
-	for (let i = 0; i < pastMessages.length; i++) {
-		let pastMessage = pastMessages[i]
-		ws.send(JSON.stringify(pastMessage))
-	}
-
-	ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Guest login is enabled. Your next message will be your username.", color: 1 }))
+	ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Guest login is enabled. Your next message will be your username.", timestamp: Date.now(), color: 1 }))
 	ws.chatState = "SET_USERNAME"
+	ws.uuid = randomUUID()
 
 	ws.on("pong", () => (ws.isAlive = true))
 
@@ -54,7 +51,8 @@ wss.on("connection", (ws, request) => {
 						JSON.stringify({
 							type: "SERVER_MESSAGE",
 							content: "You must enter a username.",
-							color: 2,
+							timestamp: Date.now(),
+							color: 1,
 						})
 					)
 
@@ -63,7 +61,8 @@ wss.on("connection", (ws, request) => {
 						JSON.stringify({
 							type: "SERVER_MESSAGE",
 							content: "Usernames can only be 1-16 characters long.",
-							color: 2,
+							timestamp: Date.now(),
+							color: 1,
 						})
 					)
 
@@ -72,7 +71,8 @@ wss.on("connection", (ws, request) => {
 						JSON.stringify({
 							type: "SERVER_MESSAGE",
 							content: "Usernames can only be letters, numbers, and underscores.",
-							color: 2,
+							timestamp: Date.now(),
+							color: 1,
 						})
 					)
 
@@ -81,11 +81,11 @@ wss.on("connection", (ws, request) => {
 						JSON.stringify({
 							type: "SERVER_MESSAGE",
 							content: "Somebody already has that username.",
-							color: 2,
+							timestamp: Date.now(),
+							color: 1,
 						})
 					)
 
-				ws.chatState = "READY"
 				ws.username = data.content
 
 				console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} has joined the chatroom.`)
@@ -95,6 +95,25 @@ wss.on("connection", (ws, request) => {
 					name: ws.username,
 					rank: 0,
 				})
+
+				for (let i = 0; i < pastMessages.length; i++) {
+					let pastMessage = pastMessages[i]
+					ws.send(JSON.stringify(pastMessage))
+				}
+
+				wss.clients.forEach((client) => {
+					if (client.chatState == "READY" && client.readyState === WebSocket.OPEN) {
+						ws.send(
+							JSON.stringify({
+								type: "USER_ADD",
+								name: client.username,
+								rank: 0,
+							})
+						)
+					}
+				})
+
+				ws.chatState = "READY"
 
 				broadcast({
 					type: "SERVER_MESSAGE",
@@ -109,7 +128,8 @@ wss.on("connection", (ws, request) => {
 						JSON.stringify({
 							type: "SERVER_MESSAGE",
 							content: "Messages can only be 1-100 characters long.",
-							color: 2,
+							timestamp: Date.now(),
+							color: 1,
 						})
 					)
 
@@ -126,15 +146,7 @@ wss.on("connection", (ws, request) => {
 					color: 0,
 				})
 				break
-			case "COOLDOWN":
-				break
 			default:
-				ws.send(
-					JSON.stringify({
-						type: "SERVER_MESSAGE",
-						content: "ERR_UNKNOWN_STATE",
-					})
-				)
 				break
 		}
 	})
@@ -155,6 +167,7 @@ wss.on("connection", (ws, request) => {
 				color: 1,
 			})
 
+			ws.uuid = undefined
 			ws.chatState = undefined
 			ws.username = undefined
 		}

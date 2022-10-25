@@ -1,10 +1,10 @@
 <script>
-	import Message from "$lib/components/Message.svelte"
-	import { message } from "$lib/message.js"
-	import { chats } from "$lib/chats.js"
-	import { users } from "$lib/users.js"
 	import { browser } from "$app/environment"
 	import { page } from "$app/stores"
+	import { handler } from "$lib/handler.js"
+	import { messages } from "$lib/stores/messages.js"
+	import { users } from "$lib/stores/users.js"
+	import Message from "$lib/components/Message.svelte"
 
 	let valid = true,
 		connected = false,
@@ -28,15 +28,17 @@
 	if (browser) {
 		socket = new WebSocket(socketUrl)
 		socket.addEventListener("error", (error) => console.log(error))
-		socket.addEventListener("message", ({ data }) => message(JSON.parse(data.toString())))
+		socket.addEventListener("message", ({ data }) => handler(JSON.parse(data.toString()), socket))
 		socket.addEventListener("open", () => (connected = true))
 		socket.addEventListener("close", () => {
 			connected = false
-
-			message({
-				content: "You have lost connection to the chatroom. Please refresh to reconnect.",
-				timestamp: Date.now(),
-				server: true,
+			handler({
+				type: "MESSAGE",
+				data: {
+					content: "You have lost connection to the chatroom. Please refresh to reconnect.",
+					timestamp: Date.now(),
+					server: true,
+				},
 			})
 		})
 	}
@@ -45,7 +47,7 @@
 <div class="grid grid-rows-1 grid-cols-7 w-full h-full gap-x-2">
 	<div class="w-full divide-y-2 divide-zinc-700 flex flex-col col-span-6">
 		<div class="flex flex-col overflow-auto flex-grow" bind:this={chatbox}>
-			{#each $chats as message}
+			{#each $messages as message}
 				<Message {message} />
 			{:else}
 				<Message message={{ server: true, timestamp: Date.now(), content: "Connecting to the chatroom..." }} />
@@ -64,8 +66,8 @@
 		</form>
 	</div>
 	<div class="bg-zinc-800 p-2 w-full flex flex-col userlist rounded-lg">
-		{#each users as user}
-			<p class="font-bold">{user.username}</p>
+		{#each $users as user}
+			<p class="font-bold">{user}</p>
 		{/each}
 	</div>
 </div>

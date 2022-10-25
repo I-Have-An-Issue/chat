@@ -3,6 +3,7 @@ import express from "express"
 import WebSocket, { WebSocketServer } from "ws"
 import { createServer } from "http"
 import { randomUUID } from "crypto"
+import { commands } from "./src/lib/commands.js"
 
 const app = express()
 const server = createServer(app)
@@ -10,8 +11,6 @@ const server = createServer(app)
 app.use(handler)
 
 const wss = new WebSocketServer({ server })
-
-let pastMessages = []
 
 function existingUsername(username) {
 	return new Promise((resolve, reject) => {
@@ -22,128 +21,113 @@ function existingUsername(username) {
 	})
 }
 
-function broadcast(data, ws) {
-	if (["SERVER_MESSAGE", "USER_MESSAGE"].includes(data.type)) pastMessages.push(data)
+function send(client, type, data) {
+	client.send(
+		JSON.stringify({
+			type,
+			[type.toLowerCase()]: data,
+		})
+	)
+}
+
+function broadcast(type, data, ws) {
 	wss.clients.forEach((client) => {
 		if (client !== ws && client.readyState === WebSocket.OPEN && client.username) {
-			client.send(JSON.stringify(data))
+			return send(client, type, data)
 		}
 	})
 }
 
 wss.on("connection", (ws, request) => {
-	ws.send(JSON.stringify({ type: "SERVER_MESSAGE", content: "Guest login is enabled. Your next message will be your username.", timestamp: Date.now(), color: 1 }))
+	send(ws, "MESSAGE", {
+		content: "Guest login is enabled. Your next message will be your username.",
+		timestamp: Date.now(),
+		server: true,
+	})
+
 	ws.chatState = "SET_USERNAME"
-	ws.uuid = randomUUID()
+	ws.id = randomUUID()
 
 	ws.on("pong", () => (ws.isAlive = true))
 
 	ws.on("message", async (message, isBinary) => {
-		let data
 		try {
-			data = JSON.parse(message.toString())
-		} catch (_) {}
+			var data = JSON.parse(message.toString())
+		} catch (_) {
+			return send(ws, "MESSAGE", {
+				content: "Malformed message.",
+				timestamp: Date.now(),
+				server: true,
+			})
+		}
 
 		switch (ws.chatState) {
 			case "SET_USERNAME":
 				if (!data.content || data.content.length <= 0)
-					return ws.send(
-						JSON.stringify({
-							type: "SERVER_MESSAGE",
-							content: "You must enter a username.",
-							timestamp: Date.now(),
-							color: 1,
-						})
-					)
+					return send(ws, "MESSAGE", {
+						content: "You must enter a username.",
+						timestamp: Date.now(),
+						server: true,
+					})
 
 				if (data.content.length > 16)
-					return ws.send(
-						JSON.stringify({
-							type: "SERVER_MESSAGE",
-							content: "Usernames can only be 1-16 characters long.",
-							timestamp: Date.now(),
-							color: 1,
-						})
-					)
+					return send(ws, "MESSAGE", {
+						content: "Usernames can only be 1-16 characters long.",
+						timestamp: Date.now(),
+						server: true,
+					})
 
 				if (new RegExp(/[^A-Za-z0-9_]/g).test(data.content))
-					return ws.send(
-						JSON.stringify({
-							type: "SERVER_MESSAGE",
-							content: "Usernames can only be letters, numbers, and underscores.",
-							timestamp: Date.now(),
-							color: 1,
-						})
-					)
+					return send(ws, "MESSAGE", {
+						content: "Usernames can only be letters, numbers, and underscores.",
+						timestamp: Date.now(),
+						server: true,
+					})
 
 				if (await existingUsername(data.content))
-					return ws.send(
-						JSON.stringify({
-							type: "SERVER_MESSAGE",
-							content: "Somebody already has that username.",
-							timestamp: Date.now(),
-							color: 1,
-						})
-					)
+					return send(ws, "MESSAGE", {
+						content: "Somebody already has that username.",
+						timestamp: Date.now(),
+						server: true,
+					})
 
 				ws.username = data.content
-
-				console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} has joined the chatroom.`)
-
-				broadcast({
-					type: "USER_ADD",
-					name: ws.username,
-					rank: 0,
-				})
-
-				for (let i = 0; i < pastMessages.length; i++) {
-					let pastMessage = pastMessages[i]
-					ws.send(JSON.stringify(pastMessage))
-				}
-
-				wss.clients.forEach((client) => {
-					if (client.chatState == "READY" && client.readyState === WebSocket.OPEN) {
-						ws.send(
-							JSON.stringify({
-								type: "USER_ADD",
-								name: client.username,
-								rank: 0,
-							})
-						)
-					}
-				})
-
 				ws.chatState = "READY"
 
-				broadcast({
-					type: "SERVER_MESSAGE",
+				broadcast("MESSAGE", {
 					content: `${ws.username} has joined the chatroom.`,
 					timestamp: Date.now(),
-					color: 1,
+					server: true,
 				})
 				break
 			case "READY":
-				if (data.content.length > 100 || data.content.length <= 0)
-					return ws.send(
-						JSON.stringify({
-							type: "SERVER_MESSAGE",
-							content: "Messages can only be 1-100 characters long.",
+				if (data.content.startsWith("/")) {
+					let args = data.content.split(" ")
+					let commandName = args[0].slice(1)
+					let command = commands[commandName]
+
+					if (!command)
+						return send(ws, "MESSAGE", {
+							content: "Unknown command.",
 							timestamp: Date.now(),
-							color: 1,
+							server: true,
 						})
-					)
 
-				setTimeout(() => (ws.chatState = "READY"), 500)
+					return command(ws, args.slice(1))
+				} else if (data.content.length > 100 || data.content.length <= 0)
+					return send(ws, "MESSAGE", {
+						content: "Messages can only be 1-100 characters long.",
+						timestamp: Date.now(),
+						server: true,
+					})
+
 				ws.chatState = "COOLDOWN"
+				setTimeout(() => (ws.chatState = "READY"), 500)
 
-				console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} ${data.content}`)
-
-				broadcast({
-					type: "USER_MESSAGE",
-					author: ws.username,
+				broadcast("MESSAGE", {
+					username: ws.username,
 					content: data.content,
 					timestamp: Date.now(),
-					color: 0,
 				})
 				break
 			default:
@@ -153,21 +137,13 @@ wss.on("connection", (ws, request) => {
 
 	ws.on("close", (code, reason) => {
 		if (ws.chatState == "READY" && ws.username) {
-			console.log(`${request.headers["x-forwarded-for"] || request.socket.remoteAddress} ${ws.username} has left the chatroom.`)
-
-			broadcast({
-				type: "USER_REMOVE",
-				name: ws.username,
-			})
-
-			broadcast({
-				type: "SERVER_MESSAGE",
+			broadcast("MESSAGE", {
 				content: `${ws.username} has left the chatroom.`,
 				timestamp: Date.now(),
-				color: 1,
+				server: true,
 			})
 
-			ws.uuid = undefined
+			ws.id = undefined
 			ws.chatState = undefined
 			ws.username = undefined
 		}
@@ -185,4 +161,3 @@ const interval = setInterval(() => {
 wss.on("close", () => clearInterval(interval))
 
 server.listen(process.env.PORT || 5173)
-console.log(`Listening on http://127.0.0.1:${process.env.PORT || 5173}/`)

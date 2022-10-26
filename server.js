@@ -38,12 +38,14 @@ wss.on("connection", (ws, request) => {
 
 	ws.on("pong", () => {
 		ws.isAlive = true
-		broadcast({
-			wss,
-			type: "USER_ADD",
-			channel: ws.channel,
-			data: ws.username,
-		})
+		if (ws.chatState == "READY" && ws.username) {
+			broadcast({
+				wss,
+				type: "USER_ADD",
+				channel: ws.channel,
+				data: ws.username,
+			})
+		}
 	})
 })
 
